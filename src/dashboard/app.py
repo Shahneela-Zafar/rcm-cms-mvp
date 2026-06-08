@@ -269,7 +269,7 @@ with forecast_tab:
     c1.metric("Best model", best_model)
     c2.metric("Holdout MAPE", pct(best_enrollment["mape"]))
     c3.metric("Next-month enrollment lift", whole(next_month_delta))
-    c4.metric("90-day proxy revenue lift", money(revenue_forecast.iloc[-1]["yhat"] - (latest_enrollment * 115.0)))
+    c4.metric("90-day proxy revenue lift", money(revenue_forecast.iloc[-1]["yhat"] - (latest_enrollment * PMPM_PROXY_REVENUE)))
 
     target_label = st.radio("Business view", ["Enrollment opportunity", "Proxy revenue opportunity"], horizontal=True)
     target = "observed_enrollment" if target_label == "Enrollment opportunity" else "proxy_revenue"
@@ -277,11 +277,11 @@ with forecast_tab:
     selected = forecast[forecast["target"].eq(target) & forecast["model"].eq(selected_best)].sort_values("ds")
     actual = monthly[["report_month", "observed_enrollment"]].rename(columns={"report_month": "ds", "observed_enrollment": "actual"})
     if target == "proxy_revenue":
-        actual["actual"] = actual["actual"] * 115.0
+        actual["actual"] = actual["actual"] * PMPM_PROXY_REVENUE
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=actual["ds"], y=actual["actual"], mode="lines+markers", name="CMS actual"))
-    future = selected[selected["period_type"].eq("future")]
+    future = future_forecast(forecast, monthly, target, selected_best)
     holdout = selected[selected["period_type"].eq("holdout")]
     fig.add_trace(go.Scatter(x=holdout["ds"], y=holdout["yhat"], mode="lines+markers", name="Holdout forecast"))
     fig.add_trace(go.Scatter(x=future["ds"], y=future["yhat"], mode="lines+markers", name="90-day forecast"))
