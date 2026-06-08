@@ -164,6 +164,10 @@ Dashboard sections:
 | `06_model_evaluation_and_validation.ipynb` | Model validation, assumptions, limitations, and final decision table. |
 | `07_dashboard_export_assets.ipynb` | Dashboard-ready tables and evidence assets. |
 
+GitHub sometimes does not render the full `02_ma_enrollment_eda.ipynb` notebook because it is output-heavy. Use the rendered EDA report instead:
+
+- [`docs/02_ma_enrollment_eda_visual_report.md`](docs/02_ma_enrollment_eda_visual_report.md): GitHub-readable EDA report with 28 static graphs and explanations.
+
 ## Dashboard Notes
 
 The Streamlit dashboard is not just a pipeline output viewer. It is organized around the original business deliverables:
