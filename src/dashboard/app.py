@@ -86,6 +86,10 @@ def metric_card(label: str, value: str, help_text: str | None = None) -> None:
     st.metric(label, value, help=help_text)
 
 
+def csv_bytes(frame: pd.DataFrame) -> bytes:
+    return frame.to_csv(index=False).encode("utf-8")
+
+
 def target_series(monthly_frame: pd.DataFrame, target: str) -> pd.Series:
     if target == "proxy_revenue":
         return monthly_frame["observed_enrollment"] * PMPM_PROXY_REVENUE
@@ -175,6 +179,37 @@ pa["recommendation"] = pa.apply(risk_recommendation, axis=1)
 high_pa = pa[pa["hybrid_risk_bucket"].eq("high")]
 delay_high = delay[delay["risk_bucket"].eq("high")]
 
+with st.sidebar:
+    st.title("MVP Control Panel")
+    st.caption("Revenue forecasting, prior authorization risk, delay risk, and growth opportunity from public CMS data.")
+    st.metric("CMS data window", f"{monthly['report_month'].min():%b %Y} - {latest_label}")
+    st.metric("Proxy PMPM", money(PMPM_PROXY_REVENUE))
+    st.divider()
+    st.markdown("**Dashboard filters**")
+    state_top_n = st.slider("Growth markets shown", min_value=10, max_value=50, value=25, step=5)
+    pa_bucket_filter = st.multiselect(
+        "PA risk buckets",
+        options=["high", "medium", "low"],
+        default=["high", "medium", "low"],
+    )
+    payer_filter = st.multiselect(
+        "PA payer types",
+        options=sorted(pa["payer_type"].dropna().unique().tolist()),
+        default=sorted(pa["payer_type"].dropna().unique().tolist()),
+    )
+    delay_bucket_filter = st.multiselect(
+        "Delay risk buckets",
+        options=["high", "medium", "low"],
+        default=["high", "medium", "low"],
+    )
+    st.divider()
+    st.markdown("**Public-data guardrail**")
+    st.caption("Revenue is an enrollment-based opportunity proxy. PA labels are demo labels aligned to CMS policy/reporting context.")
+
+filtered_state_growth = state_growth.head(state_top_n)
+filtered_pa = pa[pa["hybrid_risk_bucket"].isin(pa_bucket_filter) & pa["payer_type"].isin(payer_filter)].copy()
+filtered_delay = delay[delay["risk_bucket"].isin(delay_bucket_filter)].copy()
+
 st.markdown(
     """
     <style>
@@ -238,7 +273,7 @@ with overview:
         fig.update_layout(title="Actual CMS Enrollment Trend + 90-Day Projection", xaxis_title="", yaxis_title="Observed enrollment", height=390)
         st.plotly_chart(fig, width="stretch")
     with right:
-        top_states = state_growth.head(7)[["state", "state_name", "absolute_growth", "growth_pct", "last_enrollment"]]
+        top_states = filtered_state_growth.head(7)[["state", "state_name", "absolute_growth", "growth_pct", "last_enrollment"]]
         st.markdown("**Top growth geographies**")
         st.dataframe(
             top_states.rename(
@@ -259,6 +294,12 @@ with overview:
     d1.success("Forecast dashboard: CMS trend + 90-day projection")
     d2.success("PA intelligence: risk queue + model benchmark")
     d3.success("Growth opportunity: geography + plan-level expansion")
+    st.download_button(
+        "Download executive forecast extract",
+        data=csv_bytes(headline_forecast),
+        file_name="executive_90_day_forecast.csv",
+        mime="text/csv",
+    )
 
 with forecast_tab:
     section_header(
@@ -311,7 +352,7 @@ with growth_tab:
     c2.metric("Top state", state_growth.iloc[0]["state_name"], whole(state_growth.iloc[0]["absolute_growth"]))
     c3.metric("Tracked county keys", whole(pd.read_csv(TABLE_DIR / "ma_scp_forecasting_readiness.csv").iloc[0]["county_key_count"]))
 
-    map_data = state_growth[state_growth["state"].isin(STATE_NAME)].copy()
+    map_data = filtered_state_growth[filtered_state_growth["state"].isin(STATE_NAME)].copy()
     fig = px.choropleth(
         map_data,
         locations="state",
@@ -329,23 +370,29 @@ with growth_tab:
     left, right = st.columns([1, 1])
     with left:
         fig = px.scatter(
-            state_growth,
+            filtered_state_growth,
             x="last_enrollment",
             y="growth_pct",
-            size=state_growth["absolute_growth"].abs().clip(lower=1),
+            size=filtered_state_growth["absolute_growth"].abs().clip(lower=1),
             hover_name="state_name",
             title="Market scale vs growth rate",
         )
         st.plotly_chart(fig, width="stretch")
     with right:
-        fig = px.bar(state_growth.head(15), x="state", y="absolute_growth", title="Top 15 states by enrollment lift")
+        fig = px.bar(filtered_state_growth.head(15), x="state", y="absolute_growth", title="Top states by enrollment lift")
         st.plotly_chart(fig, width="stretch")
 
     with st.expander("Open growth opportunity table"):
         st.dataframe(
-            state_growth[["state", "state_name", "last_enrollment", "absolute_growth", "growth_pct", "volatility_mom_growth_pct", "counties"]].head(30),
+            filtered_state_growth[["state", "state_name", "last_enrollment", "absolute_growth", "growth_pct", "volatility_mom_growth_pct", "counties"]],
             width="stretch",
             hide_index=True,
+        )
+        st.download_button(
+            "Download growth opportunity report",
+            data=csv_bytes(filtered_state_growth),
+            file_name="growth_opportunity_report.csv",
+            mime="text/csv",
         )
 
 with pa_tab:
@@ -362,7 +409,7 @@ with pa_tab:
     left, right = st.columns([1.1, 1])
     with left:
         fig = px.histogram(
-            pa,
+            filtered_pa,
             x="hybrid_denial_risk",
             color="hybrid_risk_bucket",
             title="Denial-risk distribution",
@@ -371,7 +418,7 @@ with pa_tab:
         st.plotly_chart(fig, width="stretch")
     with right:
         risk_by_proc = (
-            pa.groupby(["procedure_type", "payer_type"], as_index=False)
+            filtered_pa.groupby(["procedure_type", "payer_type"], as_index=False)
             .agg(avg_denial_risk=("hybrid_denial_risk", "mean"), cases=("hybrid_denial_risk", "size"))
             .sort_values("avg_denial_risk", ascending=False)
         )
@@ -379,7 +426,7 @@ with pa_tab:
         st.plotly_chart(fig, width="stretch")
 
     st.markdown("**Documentation strengthening queue**")
-    queue = pa.sort_values("hybrid_denial_risk", ascending=False)[
+    queue = filtered_pa.sort_values("hybrid_denial_risk", ascending=False)[
         [
             "procedure_type",
             "diagnosis_category",
@@ -394,6 +441,12 @@ with pa_tab:
         ]
     ].head(25)
     st.dataframe(queue, width="stretch", hide_index=True)
+    st.download_button(
+        "Download PA strengthening queue",
+        data=csv_bytes(queue),
+        file_name="prior_auth_strengthening_queue.csv",
+        mime="text/csv",
+    )
 
 with delay_tab:
     section_header(
@@ -406,7 +459,7 @@ with delay_tab:
     c3.metric("Expedited threshold", "72 hours")
 
     fig = px.bar(
-        delay.sort_values("delay_risk_score", ascending=False),
+        filtered_delay.sort_values("delay_risk_score", ascending=False),
         x="procedure_type",
         y="delay_risk_score",
         color="payer_type",
@@ -417,11 +470,17 @@ with delay_tab:
 
     st.markdown("**High-delay combinations to review before submission**")
     st.dataframe(
-        delay.sort_values("delay_risk_score", ascending=False)[
+        filtered_delay.sort_values("delay_risk_score", ascending=False)[
             ["procedure_type", "payer_type", "is_expedited", "expected_decision_hours", "cms_decision_limit_hours", "delay_risk_score", "risk_bucket"]
         ].head(25),
         width="stretch",
         hide_index=True,
+    )
+    st.download_button(
+        "Download delay-risk queue",
+        data=csv_bytes(filtered_delay.sort_values("delay_risk_score", ascending=False)),
+        file_name="auth_delay_risk_queue.csv",
+        mime="text/csv",
     )
 
 with plan_tab:
@@ -452,6 +511,12 @@ with plan_tab:
             width="stretch",
             hide_index=True,
         )
+        st.download_button(
+            "Download plan intelligence table",
+            data=csv_bytes(cpsc_plan_growth),
+            file_name="plan_intelligence_growth.csv",
+            mime="text/csv",
+        )
 
 with validation_tab:
     section_header(
@@ -471,3 +536,9 @@ with validation_tab:
         st.write("- Forecast is enrollment-based opportunity forecasting.")
         st.write("- Proxy revenue is not actual collections.")
         st.write("- PA model is a risk-prioritization demo, not payer production benchmarking.")
+    st.download_button(
+        "Download validation summary",
+        data=csv_bytes(validation),
+        file_name="model_validation_summary.csv",
+        mime="text/csv",
+    )

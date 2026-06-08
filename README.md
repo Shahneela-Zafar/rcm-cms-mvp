@@ -1,30 +1,90 @@
-# CMS RCM MVP
+# Revenue Forecasting & Prior Authorization Intelligence
 
-24-hour public-data MVP for Medicare Advantage revenue-opportunity forecasting and prior-authorization intelligence.
+Public CMS-data MVP for RCM teams that need a 90-day revenue-opportunity forecast, prior authorization denial-risk triage, auth delay flags, and Medicare Advantage growth opportunity analytics.
 
-This repo is intentionally scoped to official public CMS sources. The forecasting data is based on MA enrollment trends, so any revenue number should be treated as a documented proxy/opportunity estimate, not actual collections or remittance forecasting.
+The project uses public CMS Medicare Advantage enrollment, plan, and prior-authorization policy/reporting sources. Revenue is modeled as an enrollment-based opportunity proxy, not actual collections, remit, or claim payment forecasting.
 
-## Current Setup
+## Repository File Guide
 
-- Project structure created.
-- Core CMS raw data downloads are stored under `data/raw/`.
-- Optional CPSC monthly enrollment ZIPs and Data.CMS reference links are stored under `data/raw/`.
-- Python virtual environment uses `.venv/`.
-- EDA, forecasting, PA risk scoring, delay scoring, validation, CPSC analysis, and dashboard code are implemented.
+| File | Audience | Tells |
+| --- | --- | --- |
+| `README.md` | User / Developer | How to set up, install, run the pipeline, launch dashboard, and understand repo structure. |
+| `RND.md` | Interviewer / Reviewer / Researcher | How the project was built, why decisions were made, what experiments were run, and what limitations exist. |
+| `PPT.md` | Presentation audience | High-level slide-style project summary for demo, viva, stakeholder review, or pitch. |
 
-## MVP Decisions
+## Business Objective
 
-- Forecasting target: `observed_enrollment` from CMS MA SCP files.
-- Revenue framing: `proxy_revenue = observed_enrollment * 115 PMPM`; this is an opportunity proxy, not actual collections.
-- Best forecast model from 3-month holdout: `linear_drift`, with observed-enrollment MAPE about `0.048%`.
-- Prophet is included and evaluated, but it is not the headline model because it underperformed the simple baseline on this short 29-month series.
-- CMS-suppressed enrollment rows are retained and flagged; they are not dropped.
-- PA intelligence is framed as CMS-aligned risk prioritization using seeded demo labels, not production payer benchmarking.
-- Delay risk uses CMS timing rules: 72 hours for expedited and 7 calendar days for standard requests.
+Client hook:
 
-## Environment
+> We tell you what next month's collections opportunity may look like and which prior authorization requests are likely to get denied or delayed, so the team can strengthen documentation before submission.
 
-From this folder:
+MVP deliverables covered:
+
+- Forecast dashboard with CMS trend lines and 90-day projection.
+- Prior authorization risk queue with documentation recommendations.
+- Auth delay risk table for high-delay procedure-payer combinations.
+- Growth opportunity report by geography and plan.
+- Validation summary with assumptions, model metrics, and public-data guardrails.
+
+RCM problems covered:
+
+- Prior auth prediction
+- Auth delay risk
+- Revenue forecasting
+- Growth opportunity analytics
+
+## Current Results
+
+- CMS enrollment data window: January 2024 through May 2026.
+- National observed MA enrollment increased from about 33.48M to 36.08M.
+- Forecast target: `observed_enrollment`.
+- Revenue proxy: `proxy_revenue = observed_enrollment * 115 PMPM`.
+- Best forecast model on 3-month holdout: `linear_drift`.
+- Observed-enrollment holdout MAPE: about `0.048%`.
+- PA demo model accuracy: about `93.3%`.
+- Auth delay module flags high-risk combinations before submission.
+- Suppressed CMS rows are retained and flagged instead of dropped.
+- Outliers are flagged for review instead of removed.
+
+## Project Structure
+
+```text
+rcm-cms-mvp/
+  docs/
+    assumptions.md
+    dataset_register.md
+    validation_checklist.md
+  notebooks/
+    01_data_inventory_and_quality.ipynb
+    02_ma_enrollment_eda.ipynb
+    03_revenue_opportunity_forecasting.ipynb
+    04_cpsc_plan_level_analysis.ipynb
+    05_prior_auth_risk_scoring_demo.ipynb
+    06_model_evaluation_and_validation.ipynb
+    07_dashboard_export_assets.ipynb
+  scripts/
+    download_data.ps1
+    download_optional_data.ps1
+    run_pipeline.ps1
+    run_dashboard.ps1
+    start_jupyter.ps1
+  src/
+    config.py
+    data/
+    dashboard/
+    models/
+  README.md
+  RND.md
+  PPT.md
+  requirements.txt
+  requirements-optional.txt
+```
+
+Generated local folders such as `data/raw/`, `data/processed/`, `reports/tables/`, `reports/figures/`, `models/`, `.venv/`, and logs are intentionally ignored by Git.
+
+## Setup
+
+From the project folder:
 
 ```powershell
 python -m venv .venv
@@ -34,31 +94,27 @@ python -m pip install -r .\requirements.txt
 python -m pip install -r .\requirements-optional.txt
 ```
 
-`requirements-optional.txt` contains TensorFlow for the optional LSTM path.
+`requirements-optional.txt` contains TensorFlow for optional LSTM experimentation. The core MVP runs without depending on LSTM as the headline model.
 
-## Data Download
-
-From this folder:
+## Download Data
 
 ```powershell
 .\scripts\download_data.ps1
 .\scripts\download_optional_data.ps1
 ```
 
-The core script downloads:
+Core sources include:
 
-- MA plan directory
-- MA state/county penetration
-- 2026 PBP benefits JSON
-- CMS prior authorization reporting template
-- CMS-0057-F final rule
-- MA step therapy memo
-- Monthly MA enrollment by state/county/plan type, January 2024 through May 2026
+- CMS Medicare Advantage state/county penetration files.
+- CMS MA plan directory.
+- CMS PBP benefits JSON.
+- CMS prior authorization reporting template and CMS-0057-F related material.
+- CMS MA step therapy memo.
+- Monthly MA state/county/plan-type enrollment from January 2024 through May 2026.
 
-The optional script downloads:
+Optional source:
 
-- Monthly enrollment by contract/plan/state/county, January 2024 through May 2026
-- Data dictionaries and source links for later Data.CMS manual/API exports
+- CPSC monthly enrollment by contract, plan, state, and county for plan-level growth intelligence.
 
 ## Run Pipeline
 
@@ -66,13 +122,13 @@ The optional script downloads:
 .\scripts\run_pipeline.ps1
 ```
 
-This runs:
+The pipeline runs:
 
-- MA SCP ingestion
-- Forecast model evaluation
-- PA risk scoring demo
-- Auth delay risk scoring
-- Validation summary compilation
+- MA enrollment ingestion and quality processing.
+- Forecast model training/evaluation.
+- Prior authorization risk scoring demo.
+- Auth delay risk scoring.
+- Validation summary generation.
 
 ## Run Dashboard
 
@@ -80,12 +136,58 @@ This runs:
 .\scripts\run_dashboard.ps1
 ```
 
+Open:
+
+```text
+http://127.0.0.1:8501
+```
+
+Dashboard sections:
+
+- Executive View
+- 90-Day Forecast
+- Growth Opportunity
+- Prior Auth Intelligence
+- Auth Delay Risk
+- Plan Intelligence
+- Validation
+
 ## Notebooks
 
-- `01_data_inventory_and_quality.ipynb`: raw data integrity and coverage
-- `02_ma_enrollment_eda.ipynb`: deep EDA, missing/duplicate/outlier handling, 24 graphs
-- `03_revenue_opportunity_forecasting.ipynb`: baseline, Prophet, exponential smoothing, 90-day projection
-- `04_cpsc_plan_level_analysis.ipynb`: optional CPSC plan/contract growth analysis with chunked aggregation
-- `05_prior_auth_risk_scoring_demo.ipynb`: CMS-aligned PA denial-risk prototype
-- `06_model_evaluation_and_validation.ipynb`: final validation and limitations
-- `07_dashboard_export_assets.ipynb`: dashboard-ready CSV assets
+| Notebook | Purpose |
+| --- | --- |
+| `01_data_inventory_and_quality.ipynb` | Data inventory, source checks, file coverage, and quality gate. |
+| `02_ma_enrollment_eda.ipynb` | Deep EDA with missing value, duplicate, suppression, outlier, trend, and geography analysis. |
+| `03_revenue_opportunity_forecasting.ipynb` | Forecast modeling, holdout evaluation, and 90-day projection logic. |
+| `04_cpsc_plan_level_analysis.ipynb` | Contract/plan/state analysis for sales-targeting intelligence. |
+| `05_prior_auth_risk_scoring_demo.ipynb` | CMS-aligned PA denial-risk scoring prototype. |
+| `06_model_evaluation_and_validation.ipynb` | Model validation, assumptions, limitations, and final decision table. |
+| `07_dashboard_export_assets.ipynb` | Dashboard-ready tables and evidence assets. |
+
+## Dashboard Notes
+
+The Streamlit dashboard is not just a pipeline output viewer. It is organized around the original business deliverables:
+
+- What will the next 90 days look like?
+- Which markets are growing?
+- Which PA requests need stronger documentation?
+- Which requests may be delayed?
+- Which plan/geography combinations are useful for sales conversations?
+- What should reviewers trust, and what should they not overclaim?
+
+## Limitations
+
+- Public CMS files do not contain provider-specific collections, remits, denials, or request-level prior authorization outcomes.
+- The revenue number is a transparent PMPM opportunity proxy.
+- PA prediction is a demo risk-prioritization model, not a production payer-specific denial model.
+- Forecast history is short, so simple baselines can outperform heavier models.
+- CMS-suppressed values are not imputed into false precision.
+
+## Git Workflow
+
+```powershell
+git status
+git add .
+git commit -m "Update dashboard and project documentation"
+git push
+```
