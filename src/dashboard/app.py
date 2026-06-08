@@ -46,8 +46,8 @@ with tab1:
     fig = px.line(chart, x="ds", y="yhat", color="period_type", title=f"{model} forecast: {target}")
     if chart["actual"].notna().any():
         fig.add_scatter(x=chart["ds"], y=chart["actual"], mode="markers+lines", name="actual")
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(metrics[metrics["target"].eq(target)].sort_values("mape"), use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(metrics[metrics["target"].eq(target)].sort_values("mape"), width="stretch")
 
 with tab2:
     state_growth = data["state_growth"].copy()
@@ -59,14 +59,14 @@ with tab2:
         hover_name="state",
         title="State scale vs growth",
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(state_growth.head(25), use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(state_growth.head(25), width="stretch")
 
 with tab3:
     pa = data["pa"]
     fig = px.histogram(pa, x="hybrid_denial_risk", color="hybrid_risk_bucket", title="PA hybrid denial-risk distribution")
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(pa.sort_values("hybrid_denial_risk", ascending=False).head(30), use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(pa.sort_values("hybrid_denial_risk", ascending=False).head(30), width="stretch")
 
 with tab4:
     delay = data["delay"]
@@ -78,10 +78,11 @@ with tab4:
         facet_col="is_expedited",
         title="Delay risk by procedure, payer, and urgency",
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(delay.sort_values("delay_risk_score", ascending=False), use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(delay.sort_values("delay_risk_score", ascending=False), width="stretch")
 
 with tab5:
-    st.dataframe(data["validation"], use_container_width=True)
+    st.dataframe(data["validation"], width="stretch")
     st.info("Outliers and CMS-suppressed rows are flagged rather than dropped. This keeps the public-data MVP honest and traceable.")
+
 

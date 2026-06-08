@@ -175,7 +175,7 @@ cpsc_cells = [
         """
         ## Chunked CPSC Aggregation
 
-        Why: CPSC enrollment files are large. The notebook aggregates each monthly file to contract/plan/state/county level and writes compact outputs.
+        Why: CPSC enrollment files are large. The first safe aggregation level for the MVP is contract-plan-month and state-plan-month, not raw county rows. County-level CPSC is too large for a notebook loop and is unnecessary for the current dashboard because MA SCP already covers county opportunity.
         """
     ),
     code(
@@ -194,7 +194,8 @@ cpsc_cells = [
             return matches[0]
 
 
-        monthly_rows = []
+        plan_rows = []
+        state_plan_rows = []
         contract_rows = []
         zip_paths = sorted(CPSC_DIR.glob("*.zip"))
 
@@ -217,34 +218,43 @@ cpsc_cells = [
                 for chunk in chunks:
                     chunk["Enrollment"] = pd.to_numeric(chunk["Enrollment"].str.replace(",", "", regex=False), errors="coerce")
                     chunk["report_month_label"] = month
-                    grouped = (
-                        chunk.groupby(["report_month_label", "Contract Number", "Plan ID", "State", "County", "FIPS State County Code"], as_index=False)
+                    plan_grouped = (
+                        chunk.groupby(["report_month_label", "Contract Number", "Plan ID"], as_index=False)
                         .agg(observed_enrollment=("Enrollment", "sum"), source_rows=("Enrollment", "size"))
                     )
-                    monthly_rows.append(grouped)
+                    state_plan_grouped = (
+                        chunk.groupby(["report_month_label", "Contract Number", "Plan ID", "State"], as_index=False)
+                        .agg(observed_enrollment=("Enrollment", "sum"), source_rows=("Enrollment", "size"), counties=("FIPS State County Code", "nunique"))
+                    )
+                    plan_rows.append(plan_grouped)
+                    state_plan_rows.append(state_plan_grouped)
 
-        cpsc_enrollment = pd.concat(monthly_rows, ignore_index=True)
-        cpsc_enrollment = (
-            cpsc_enrollment.groupby(["report_month_label", "Contract Number", "Plan ID", "State", "County", "FIPS State County Code"], as_index=False)
+        cpsc_plan_monthly = pd.concat(plan_rows, ignore_index=True)
+        cpsc_plan_monthly = (
+            cpsc_plan_monthly.groupby(["report_month_label", "Contract Number", "Plan ID"], as_index=False)
             .agg(observed_enrollment=("observed_enrollment", "sum"), source_rows=("source_rows", "sum"))
+        )
+        cpsc_state_plan_monthly = pd.concat(state_plan_rows, ignore_index=True)
+        cpsc_state_plan_monthly = (
+            cpsc_state_plan_monthly.groupby(["report_month_label", "Contract Number", "Plan ID", "State"], as_index=False)
+            .agg(observed_enrollment=("observed_enrollment", "sum"), source_rows=("source_rows", "sum"), counties=("counties", "max"))
         )
         cpsc_contract = pd.concat(contract_rows, ignore_index=True)
 
-        cpsc_enrollment.to_parquet(PROCESSED_DIR / "cpsc_contract_plan_county_monthly.parquet", index=False)
+        cpsc_plan_monthly.to_parquet(PROCESSED_DIR / "cpsc_plan_monthly.parquet", index=False)
+        cpsc_state_plan_monthly.to_parquet(PROCESSED_DIR / "cpsc_state_plan_monthly.parquet", index=False)
         cpsc_contract.to_parquet(PROCESSED_DIR / "cpsc_contract_info_monthly.parquet", index=False)
-        print(f"CPSC enrollment rows after aggregation: {len(cpsc_enrollment):,}")
+        print(f"CPSC contract-plan monthly rows after aggregation: {len(cpsc_plan_monthly):,}")
+        print(f"CPSC state-plan monthly rows after aggregation: {len(cpsc_state_plan_monthly):,}")
         print(f"CPSC contract rows: {len(cpsc_contract):,}")
         """
     ),
     md("## Contract/Plan Growth Summary\n\nWhy: this identifies high-growth plans and contracts for RCM sales targeting."),
     code(
         """
-        cpsc_enrollment["report_month"] = pd.PeriodIndex(cpsc_enrollment["report_month_label"], freq="M").to_timestamp()
-        plan_monthly = (
-            cpsc_enrollment.groupby(["report_month", "report_month_label", "Contract Number", "Plan ID"], as_index=False)
-            .agg(observed_enrollment=("observed_enrollment", "sum"), counties=("FIPS State County Code", "nunique"))
-            .sort_values(["Contract Number", "Plan ID", "report_month"])
-        )
+        plan_monthly = pd.read_parquet(PROCESSED_DIR / "cpsc_plan_monthly.parquet")
+        plan_monthly["report_month"] = pd.PeriodIndex(plan_monthly["report_month_label"], freq="M").to_timestamp()
+        plan_monthly = plan_monthly.sort_values(["Contract Number", "Plan ID", "report_month"])
 
         plan_growth = (
             plan_monthly.groupby(["Contract Number", "Plan ID"], as_index=False)
@@ -254,7 +264,7 @@ cpsc_cells = [
                 months_present=("report_month_label", "nunique"),
                 first_enrollment=("observed_enrollment", "first"),
                 last_enrollment=("observed_enrollment", "last"),
-                counties=("counties", "max"),
+                source_rows=("source_rows", "sum"),
             )
         )
         plan_growth["absolute_growth"] = plan_growth["last_enrollment"] - plan_growth["first_enrollment"]
@@ -292,6 +302,19 @@ cpsc_cells = [
             color="Plan Type",
             title="CPSC Plan Scale vs Growth",
         )
+        fig.show()
+
+        state_plan = pd.read_parquet(PROCESSED_DIR / "cpsc_state_plan_monthly.parquet")
+        latest_month = state_plan["report_month_label"].max()
+        latest_state_plan = (
+            state_plan[state_plan["report_month_label"].eq(latest_month)]
+            .groupby("State", as_index=False)
+            .agg(observed_enrollment=("observed_enrollment", "sum"), plans=("Plan ID", "nunique"))
+            .sort_values("observed_enrollment", ascending=False)
+            .head(25)
+        )
+        latest_state_plan.to_csv(TABLE_DIR / "cpsc_latest_state_summary.csv", index=False)
+        fig = px.bar(latest_state_plan, x="State", y="observed_enrollment", title=f"CPSC Latest Enrollment by State ({latest_month})")
         fig.show()
         """
     ),
